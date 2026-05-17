@@ -8,7 +8,8 @@ using advserviceses;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddDbContext<WowContext>();
+builder.Services.AddDbContext<WowContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddSingleton<BatchUpdateProgress>();
 // Simple in-memory cache for icons: ItemId -> IconUrl
 builder.Services.AddSingleton<ConcurrentDictionary<int, string>>();
@@ -85,12 +86,12 @@ app.MapPost("/api/customers/{id:int}/characters", async (int id, Character chara
 });
 
 // Endpoint to trigger the batch update (optional, but useful)
-app.MapPost("/api/update-data", (IServiceScopeFactory scopeFactory, ILogger<Program> logger, BatchUpdateProgress progress) => {
+app.MapPost("/api/update-data", (IServiceScopeFactory scopeFactory, ILogger<Program> logger, BatchUpdateProgress progress, IConfiguration config) => {
     // We run this in a background task with its own scope to prevent disposal issues
     if (!progress.IsRunning)
     {
         logger.LogInformation("Starting background batch update...");
-        _ = Task.Run(async () => await RunBatchUpdate(scopeFactory, logger, progress));
+        _ = Task.Run(async () => await RunBatchUpdate(scopeFactory, logger, progress, config));
     }
     else
     {
@@ -101,10 +102,10 @@ app.MapPost("/api/update-data", (IServiceScopeFactory scopeFactory, ILogger<Prog
 
 app.MapGet("/api/update-progress", (BatchUpdateProgress progress) => Results.Ok(progress));
 
-app.MapGet("/api/characters/{realm}/{name}/equipment", async (string realm, string name, ILogger<Program> logger, ConcurrentDictionary<int, string> iconCache) => {
+app.MapGet("/api/characters/{realm}/{name}/equipment", async (string realm, string name, ILogger<Program> logger, ConcurrentDictionary<int, string> iconCache, IConfiguration config) => {
     const string REGION = "eu";
-    const string BLIZZARD_CLIENT_ID = "your_blizzard_client_id";
-    const string BLIZZARD_CLIENT_SECRET = "your_blizzard_client_secret";
+    string blizzardClientId = config["Blizzard:ClientId"] ?? throw new Exception("Missing Blizzard:ClientId");
+    string blizzardClientSecret = config["Blizzard:ClientSecret"] ?? throw new Exception("Missing Blizzard:ClientSecret");
 
     try {
         using var http = new HttpClient();
@@ -112,7 +113,7 @@ app.MapGet("/api/characters/{realm}/{name}/equipment", async (string realm, stri
         // 1. Blizzard Token abrufen
         var authRequest = new HttpRequestMessage(HttpMethod.Post, "https://oauth.battle.net/token");
         var authContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("grant_type", "client_credentials") });
-        var authHeader = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{BLIZZARD_CLIENT_ID}:{BLIZZARD_CLIENT_SECRET}"));
+        var authHeader = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{blizzardClientId}:{blizzardClientSecret}"));
         authRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authHeader);
         authRequest.Content = authContent;
 
@@ -173,18 +174,29 @@ app.MapGet("/api/characters/{realm}/{name}/equipment", async (string realm, stri
                             socket.IconUrl = gemIconUrl;
                         } else {
                             try {
-                                var gemMediaUrl = socket.Item.Key.Href;
+                                // ALWAYS construct the Media URL using the ID and STATIC namespace
+                                var gemMediaUrl = $"https://{REGION}.api.blizzard.com/data/wow/media/item/{gemId}?namespace=static-{REGION}&locale=en_US";
+                                
                                 var gemMediaRequest = new HttpRequestMessage(HttpMethod.Get, gemMediaUrl);
                                 gemMediaRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenData.AccessToken);
                                 
                                 var gemMediaResponse = await http.SendAsync(gemMediaRequest);
                                 if (gemMediaResponse.IsSuccessStatusCode) {
+                                    var rawJson = await gemMediaResponse.Content.ReadAsStringAsync();
+                                    logger.LogInformation("Blizzard Media Response for Gem {GemId}: {Json}", gemId, rawJson);
+                                    
                                     var gemMediaData = await gemMediaResponse.Content.ReadFromJsonAsync<BlizzardMediaResponse>();
                                     var iconAsset = gemMediaData?.Assets?.FirstOrDefault(a => a.Key == "icon");
                                     if (iconAsset != null) {
                                         socket.IconUrl = iconAsset.Value;
                                         iconCache[gemId] = iconAsset.Value;
+                                        logger.LogInformation("Successfully found IconUrl for Gem {GemId}: {Url}", gemId, iconAsset.Value);
+                                    } else {
+                                        logger.LogWarning("Gem Media API returned success but no 'icon' asset found for Gem {GemId}", gemId);
                                     }
+                                } else {
+                                    var errorBody = await gemMediaResponse.Content.ReadAsStringAsync();
+                                    logger.LogWarning("Gem Media API failed for Gem {GemId}: {Status} - {Body}", gemId, gemMediaResponse.StatusCode, errorBody);
                                 }
                             } catch (Exception ex) {
                                 logger.LogWarning("Failed to fetch media for gem {GemId}: {Message}", gemId, ex.Message);
@@ -205,7 +217,7 @@ app.MapGet("/api/characters/{realm}/{name}/equipment", async (string realm, stri
             
             var charMediaResponse = await http.SendAsync(charMediaRequest);
             if (charMediaResponse.IsSuccessStatusCode) {
-                var charMediaData = await charMediaResponse.Content.ReadFromJsonAsync<BlizzardCharacterMediaResponse>();
+                var charMediaData = await charMediaResponse.Content.ReadFromJsonAsync<BlizzardMediaResponse>();
                 // Prefer 'main-raw' or 'main'
                 var renderAsset = charMediaData?.Assets?.FirstOrDefault(a => a.Key == "main-raw") 
                                ?? charMediaData?.Assets?.FirstOrDefault(a => a.Key == "main")
@@ -231,11 +243,11 @@ app.Run();
 
 // --- BATCH UPDATE LOGIC (Moved from old Program.cs) ---
 
-async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, BatchUpdateProgress progress)
+async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, BatchUpdateProgress progress, IConfiguration config)
 {
     const string REGION = "eu";
-    const string BLIZZARD_CLIENT_ID = "your_blizzard_client_id";
-    const string BLIZZARD_CLIENT_SECRET = "your_blizzard_client_secret";
+    string blizzardClientId = config["Blizzard:ClientId"] ?? throw new Exception("Missing Blizzard:ClientId");
+    string blizzardClientSecret = config["Blizzard:ClientSecret"] ?? throw new Exception("Missing Blizzard:ClientSecret");
 
     try 
     {
@@ -254,7 +266,7 @@ async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, Bat
         // 1. Blizzard Token abrufen
         var authRequest = new HttpRequestMessage(HttpMethod.Post, "https://oauth.battle.net/token");
         var authContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("grant_type", "client_credentials") });
-        var authHeader = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{BLIZZARD_CLIENT_ID}:{BLIZZARD_CLIENT_SECRET}"));
+        var authHeader = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{blizzardClientId}:{blizzardClientSecret}"));
         authRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authHeader);
         authRequest.Content = authContent;
 

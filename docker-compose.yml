@@ -5,12 +5,15 @@ services:
       dockerfile: advserviceses/Dockerfile
     restart: unless-stopped
     ports:
-      - "5253:8080"
+      - "${BACKEND_PORT}:8080"
     depends_on:
       - postgres-db
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=${DB_HOST};Database=${DB_NAME};Username=${DB_USER};Password=${DB_PASSWORD};Include Error Detail=true
+      - Blizzard__ClientId=${BLIZZARD_CLIENT_ID}
+      - Blizzard__ClientSecret=${BLIZZARD_CLIENT_SECRET}
 
   frontend:
     build:
@@ -18,9 +21,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8009:80"
+      - "${FRONTEND_PORT}:80"
     volumes:
-      - ./frontend/advtools/build:/usr/share/nginx/html # HIER: Link von außen nach innen
+      - ./frontend/advtools/build:/usr/share/nginx/html
     depends_on:
       - backend
 
@@ -29,15 +32,13 @@ services:
     container_name: wow_db_container
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: your_secure_password # Ändere das!
-      POSTGRES_DB: wow_costumer
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Optional: Leg dein SQL-Script in einen 'init' Ordner, 
-      # damit die Tabellen beim ersten Start automatisch erstellt werden
-      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
 volumes:
   postgres_data:

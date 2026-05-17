@@ -4,14 +4,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace advserviceses;
 
-public class WowContext : DbContext
+public class WowContext(DbContextOptions<WowContext> options) : DbContext(options)
 {
-    private const string CONNECTION_STRING = "Host=192.168.178.81;Database=wow_costumer;Username=admin;Password=your_secure_password;Include Error Detail=true";
     public DbSet<Customer> Customers { get; set; }
     public DbSet<Character> Characters { get; set; }
-
-    protected override void OnConfiguring(DbContextOptionsBuilder options)
-        => options.UseNpgsql(CONNECTION_STRING);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -142,7 +138,7 @@ public class BlizzardSocket
 
 public record BlizzardItemReference(
     [property: JsonPropertyName("id")] int Id,
-    [property: JsonPropertyName("key")] BlizzardHref Key
+    [property: JsonPropertyName("key")] BlizzardHref? Key
 );
 public record BlizzardNameType(
     [property: JsonPropertyName("name")] string? Name, 
@@ -169,20 +165,18 @@ public record BlizzardHref(
     [property: JsonPropertyName("href")] string Href
 );
 
-public record BlizzardMediaResponse(
-    [property: JsonPropertyName("assets")] List<BlizzardAsset>? Assets,
-    [property: JsonPropertyName("character")] BlizzardNameRecord? Character,
-    [property: JsonPropertyName("media")] BlizzardMediaReference? Media
-);
+public class BlizzardMediaResponse
+{
+    [JsonPropertyName("assets")] public List<BlizzardAsset>? Assets { get; set; }
+    [JsonPropertyName("character")] public BlizzardNameRecord? Character { get; set; }
+    [JsonPropertyName("media")] public BlizzardMediaReference? Media { get; set; }
+}
 
-public record BlizzardCharacterMediaResponse(
-    [property: JsonPropertyName("assets")] List<BlizzardAsset> Assets
-);
-
-public record BlizzardAsset(
-    [property: JsonPropertyName("key")] string Key,
-    [property: JsonPropertyName("value")] string Value
-);
+public class BlizzardAsset
+{
+    [JsonPropertyName("key")] public string? Key { get; set; }
+    [JsonPropertyName("value")] public string? Value { get; set; }
+}
 
 public class BatchUpdateProgress
 {

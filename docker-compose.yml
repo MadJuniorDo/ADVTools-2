@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: ./backend/advserviceses
+      dockerfile: advserviceses/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5253:8080"
+    depends_on:
+      - postgres-db
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+
+  frontend:
+    build:
+      context: ./frontend/advtools
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8009:80"
+    volumes:
+      - ./frontend/advtools/build:/usr/share/nginx/html # HIER: Link von außen nach innen
+    depends_on:
+      - backend
+
+  postgres-db:
+    image: postgres:17-alpine
+    container_name: wow_db_container
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: your_secure_password # Ändere das!
+      POSTGRES_DB: wow_costumer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: Leg dein SQL-Script in einen 'init' Ordner, 
+      # damit die Tabellen beim ersten Start automatisch erstellt werden
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+volumes:
+  postgres_data:

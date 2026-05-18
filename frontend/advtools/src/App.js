@@ -275,6 +275,9 @@ function App() {
         <div className="header-left">
           <h1>AdvTools</h1>
           <div className="quick-links">
+            <a href="https://boostertools.de/adv" target="_blank" rel="noopener noreferrer" className="quick-link-btn sheet">
+              🇧 BoosterTools
+          </a>
             <a href="https://garona.de/sheet" target="_blank" rel="noopener noreferrer" className="quick-link-btn sheet">
               📅 Booking Sheet
             </a>

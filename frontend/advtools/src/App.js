@@ -34,7 +34,6 @@ function App() {
   const [rioBestRuns, setRioBestRuns] = useState([]);
   const [staticDungeons, setStaticDungeons] = useState([]);
   const [rioLoading, setRioLoading] = useState(false);
-  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, isRunning: false });
   const [armoryChar, setArmoryChar] = useState(null);
   const [armoryGear, setArmoryGear] = useState(null);
   const [armoryRenderUrl, setArmoryRenderUrl] = useState(null);
@@ -46,49 +45,6 @@ function App() {
     };
     window.addEventListener('click', handleClickOutside);
     return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    let pollingInterval;
-
-    const fetchProgress = async () => {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/api/update-progress`);
-        const data = res.data;
-        const current = data.current || data.Current || 0;
-        const total = data.total || data.Total || 0;
-        const isRunning = data.isRunning || data.IsRunning || false;
-
-        setBatchProgress({ current, total, isRunning });
-
-        if (!isRunning && total > 0 && current >= total) {
-          console.log('Stopping polling - update finished');
-          clearInterval(pollingInterval);
-        }
-      } catch (error) {
-        console.error('Failed to fetch progress:', error);
-      }
-    };
-
-    // Initial fetch to see if already running
-    fetchProgress();
-    pollingInterval = setInterval(fetchProgress, 1000);
-
-    // Trigger backend update on page load
-    const triggerUpdate = async () => {
-      try {
-        await axios.post(`${API_BASE_URL}/api/update-data`);
-        console.log('Backend update trigger request sent');
-      } catch (error) {
-        console.error('Failed to trigger backend update:', error);
-      }
-    };
-    
-    triggerUpdate();
-
-    return () => {
-      if (pollingInterval) clearInterval(pollingInterval);
-    };
   }, []);
 
   const handleRioClick = async (e, char) => {
@@ -288,21 +244,6 @@ function App() {
               <a href="https://mythicplanner.com/" target="_blank" rel="noopener noreferrer" className="quick-link-btn planer">
                 🗺️ Rio Planer
               </a>
-              {batchProgress && batchProgress.isRunning && (
-                <div className="batch-progress-container">
-                  <div 
-                    className="batch-progress-bar" 
-                    style={{ 
-                      width: `${Math.min(100, batchProgress.total > 0 
-                        ? (batchProgress.current / batchProgress.total) * 100 
-                        : 0)}%` 
-                    }}
-                  ></div>
-                  <span className="batch-progress-text">
-                    {batchProgress.current} / {batchProgress.total}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         </div>

@@ -285,22 +285,38 @@ async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, Bat
         foreach (var character in characters)
         {
             progress.Current++;
+            
+            // 3. Raider.IO
             try 
             {
-                // 3. Raider.IO
                 string rioApiUrl = $"https://raider.io/api/v1/characters/profile?region={REGION}&realm={character.Realm}&name={character.CharName}&fields=mythic_plus_scores_by_season:current";
-                var rioData = await http.GetFromJsonAsync<RioResponse>(rioApiUrl);
-
-                if (rioData != null && rioData.Seasons.Count > 0)
+                var rioResponse = await http.GetAsync(rioApiUrl);
+                
+                if (rioResponse.IsSuccessStatusCode)
                 {
-                    var currentScores = rioData.Seasons[0].Scores;
-                    character.RioAllScore = currentScores.All;
-                    character.RioDpsScore = currentScores.Dps;
-                    character.RioHealScore = currentScores.Healer;
-                    character.RioTankScore = currentScores.Tank;
+                    var rioData = await rioResponse.Content.ReadFromJsonAsync<RioResponse>();
+                    if (rioData != null && rioData.Seasons.Count > 0)
+                    {
+                        var currentScores = rioData.Seasons[0].Scores;
+                        character.RioAllScore = currentScores.All;
+                        character.RioDpsScore = currentScores.Dps;
+                        character.RioHealScore = currentScores.Healer;
+                        character.RioTankScore = currentScores.Tank;
+                    }
                 }
+                else
+                {
+                    logger.LogWarning("Raider.IO Profil nicht gefunden oder Fehler für {CharName}: {Status}", character.CharName, rioResponse.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Raider.IO Update Fehler für {CharName}: {Message}", character.CharName, ex.Message);
+            }
 
-                // 4. Blizzard
+            // 4. Blizzard
+            try
+            {
                 var realmSlug = character.Realm.ToLower().Replace(" ", "-").Replace("'", "");
                 var characterNameLower = character.CharName.ToLower();
                 var blizzardProfileUrl = $"https://{REGION}.api.blizzard.com/profile/wow/character/{realmSlug}/{characterNameLower}?namespace=profile-{REGION}&locale=en_US";
@@ -320,11 +336,23 @@ async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, Bat
                         character.Faction = blizzardData.Faction.Name;
                     }
                 }
+                else
+                {
+                    logger.LogWarning("Blizzard Profil nicht gefunden oder Fehler für {CharName}: {Status}", character.CharName, profileResponse.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Blizzard Update Fehler für {CharName}: {Message}", character.CharName, ex.Message);
+            }
+
+            try 
+            {
                 await db.SaveChangesAsync();
             }
             catch (Exception ex)
             {
-                logger.LogWarning("Fehler bei {CharName}: {Message}", character.CharName, ex.Message);
+                logger.LogError("Fehler beim Speichern in DB für {CharName}: {Message}", character.CharName, ex.Message);
             }
         }
         logger.LogInformation("--- Batch-Update abgeschlossen! ---");

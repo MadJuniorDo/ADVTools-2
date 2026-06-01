@@ -5,7 +5,61 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using advserviceses;
 
+// --- Load .env File ---
+var envValues = new Dictionary<string, string>();
+var currentDir = new DirectoryInfo(Directory.GetCurrentDirectory());
+while (currentDir != null)
+{
+    var envPath = Path.Combine(currentDir.FullName, ".env");
+    if (File.Exists(envPath))
+    {
+        foreach (var line in File.ReadLines(envPath))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+                continue;
+
+            var parts = line.Split('=', 2);
+            if (parts.Length == 2)
+            {
+                var key = parts[0].Trim();
+                var value = parts[1].Trim();
+                envValues[key] = value;
+                Environment.SetEnvironmentVariable(key, value);
+            }
+        }
+        break;
+    }
+    currentDir = currentDir.Parent;
+}
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Inject loaded .env values into the configuration builder
+if (envValues.Count > 0)
+{
+    var configOverrides = new Dictionary<string, string?>();
+
+    if (envValues.TryGetValue("DB_HOST", out var host) &&
+        envValues.TryGetValue("DB_PORT", out var port) &&
+        envValues.TryGetValue("DB_NAME", out var dbName) &&
+        envValues.TryGetValue("DB_USER", out var user) &&
+        envValues.TryGetValue("DB_PASSWORD", out var password))
+    {
+        configOverrides["ConnectionStrings:DefaultConnection"] = $"Host={host};Port={port};Database={dbName};Username={user};Password={password}";
+    }
+
+    if (envValues.TryGetValue("BLIZZARD_CLIENT_ID", out var clientId))
+    {
+        configOverrides["Blizzard:ClientId"] = clientId;
+    }
+
+    if (envValues.TryGetValue("BLIZZARD_CLIENT_SECRET", out var clientSecret))
+    {
+        configOverrides["Blizzard:ClientSecret"] = clientSecret;
+    }
+
+    builder.Configuration.AddInMemoryCollection(configOverrides);
+}
 
 // Add services to the container.
 builder.Services.AddDbContext<WowContext>(options =>
@@ -70,9 +124,44 @@ app.MapGet("/api/customers/{id:int}/characters", async (int id, WowContext db) =
     return Results.Ok(characters);
 });
 
-app.MapPost("/api/customers/{id:int}/characters", async (int id, Character character, WowContext db) =>
+app.MapPost("/api/customers/{id:int}/characters", async (int id, Character character, WowContext db, IConfiguration config, ILogger<Program> logger) =>
 {
     character.CustomerId = id;
+
+    // Fetch initial stats from Blizzard & Raider.IO synchronously
+    try
+    {
+        using var http = new HttpClient();
+        string blizzardClientId = config["Blizzard:ClientId"] ?? throw new Exception("Missing Blizzard:ClientId");
+        string blizzardClientSecret = config["Blizzard:ClientSecret"] ?? throw new Exception("Missing Blizzard:ClientSecret");
+
+        // 1. Blizzard Token abrufen
+        var authRequest = new HttpRequestMessage(HttpMethod.Post, "https://oauth.battle.net/token");
+        var authContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("grant_type", "client_credentials") });
+        var authHeader = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{blizzardClientId}:{blizzardClientSecret}"));
+        authRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authHeader);
+        authRequest.Content = authContent;
+
+        var authResponse = await http.SendAsync(authRequest);
+        if (authResponse.IsSuccessStatusCode)
+        {
+            var tokenData = await authResponse.Content.ReadFromJsonAsync<BlizzardTokenResponse>();
+            if (tokenData != null)
+            {
+                // Fetch and update the character stats
+                await UpdateSingleCharacter(character, http, tokenData.AccessToken, logger);
+            }
+        }
+        else
+        {
+            logger.LogWarning("Failed to get Blizzard Access Token on character creation: {Status}", authResponse.StatusCode);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning("Failed to fetch initial stats for character {CharName} on creation: {Message}", character.CharName, ex.Message);
+    }
+
     db.Characters.Add(character);
     try
     {
@@ -83,6 +172,56 @@ app.MapPost("/api/customers/{id:int}/characters", async (int id, Character chara
     {
         return Results.Conflict("Character already exists for this realm.");
     }
+});
+
+app.MapPost("/api/customers/{id:int}/characters/update", async (int id, WowContext db, IConfiguration config, ILogger<Program> logger) =>
+{
+    var characters = await db.Characters.Where(c => c.CustomerId == id).ToListAsync();
+    if (characters.Count == 0)
+    {
+        return Results.Ok(characters);
+    }
+
+    try
+    {
+        using var http = new HttpClient();
+        string blizzardClientId = config["Blizzard:ClientId"] ?? throw new Exception("Missing Blizzard:ClientId");
+        string blizzardClientSecret = config["Blizzard:ClientSecret"] ?? throw new Exception("Missing Blizzard:ClientSecret");
+
+        // 1. Blizzard Token abrufen
+        var authRequest = new HttpRequestMessage(HttpMethod.Post, "https://oauth.battle.net/token");
+        var authContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("grant_type", "client_credentials") });
+        var authHeader = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{blizzardClientId}:{blizzardClientSecret}"));
+        authRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authHeader);
+        authRequest.Content = authContent;
+
+        var authResponse = await http.SendAsync(authRequest);
+        if (authResponse.IsSuccessStatusCode)
+        {
+            var tokenData = await authResponse.Content.ReadFromJsonAsync<BlizzardTokenResponse>();
+            if (tokenData != null)
+            {
+                // Update characters in parallel to save time
+                var updateTasks = characters.Select(async character => 
+                {
+                    await UpdateSingleCharacter(character, http, tokenData.AccessToken, logger);
+                });
+                await Task.WhenAll(updateTasks);
+            }
+        }
+        else
+        {
+            logger.LogWarning("Failed to get Blizzard Access Token on customer characters update: {Status}", authResponse.StatusCode);
+        }
+
+        await db.SaveChangesAsync();
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning("Failed to update characters for customer {Id}: {Message}", id, ex.Message);
+    }
+
+    return Results.Ok(characters);
 });
 
 // Endpoint to trigger the batch update (optional, but useful)
@@ -245,7 +384,6 @@ app.Run();
 
 async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, BatchUpdateProgress progress, IConfiguration config)
 {
-    const string REGION = "eu";
     string blizzardClientId = config["Blizzard:ClientId"] ?? throw new Exception("Missing Blizzard:ClientId");
     string blizzardClientSecret = config["Blizzard:ClientSecret"] ?? throw new Exception("Missing Blizzard:ClientSecret");
 
@@ -286,65 +424,7 @@ async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, Bat
         {
             progress.Current++;
             
-            // 3. Raider.IO
-            try 
-            {
-                string rioApiUrl = $"https://raider.io/api/v1/characters/profile?region={REGION}&realm={character.Realm}&name={character.CharName}&fields=mythic_plus_scores_by_season:current";
-                var rioResponse = await http.GetAsync(rioApiUrl);
-                
-                if (rioResponse.IsSuccessStatusCode)
-                {
-                    var rioData = await rioResponse.Content.ReadFromJsonAsync<RioResponse>();
-                    if (rioData != null && rioData.Seasons.Count > 0)
-                    {
-                        var currentScores = rioData.Seasons[0].Scores;
-                        character.RioAllScore = currentScores.All;
-                        character.RioDpsScore = currentScores.Dps;
-                        character.RioHealScore = currentScores.Healer;
-                        character.RioTankScore = currentScores.Tank;
-                    }
-                }
-                else
-                {
-                    logger.LogWarning("Raider.IO Profil nicht gefunden oder Fehler für {CharName}: {Status}", character.CharName, rioResponse.StatusCode);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("Raider.IO Update Fehler für {CharName}: {Message}", character.CharName, ex.Message);
-            }
-
-            // 4. Blizzard
-            try
-            {
-                var realmSlug = character.Realm.ToLower().Replace(" ", "-").Replace("'", "");
-                var characterNameLower = character.CharName.ToLower();
-                var blizzardProfileUrl = $"https://{REGION}.api.blizzard.com/profile/wow/character/{realmSlug}/{characterNameLower}?namespace=profile-{REGION}&locale=en_US";
-                
-                var profileRequest = new HttpRequestMessage(HttpMethod.Get, blizzardProfileUrl);
-                profileRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenData.AccessToken);
-                
-                var profileResponse = await http.SendAsync(profileRequest);
-                if (profileResponse.IsSuccessStatusCode)
-                {
-                    var blizzardData = await profileResponse.Content.ReadFromJsonAsync<BlizzardProfileResponse>();
-                    if (blizzardData != null)
-                    {
-                        character.Level = blizzardData.Level;
-                        character.GearScore = blizzardData.EquippedItemLevel;
-                        character.Class = blizzardData.CharacterClass.Name;
-                        character.Faction = blizzardData.Faction.Name;
-                    }
-                }
-                else
-                {
-                    logger.LogWarning("Blizzard Profil nicht gefunden oder Fehler für {CharName}: {Status}", character.CharName, profileResponse.StatusCode);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("Blizzard Update Fehler für {CharName}: {Message}", character.CharName, ex.Message);
-            }
+            await UpdateSingleCharacter(character, http, tokenData.AccessToken, logger);
 
             try 
             {
@@ -365,4 +445,76 @@ async Task RunBatchUpdate(IServiceScopeFactory scopeFactory, ILogger logger, Bat
     {
         progress.IsRunning = false;
     }
+}
+
+async Task<bool> UpdateSingleCharacter(Character character, HttpClient http, string accessToken, ILogger logger)
+{
+    const string REGION = "eu";
+    bool success = false;
+
+    // 1. Raider.IO
+    try 
+    {
+        var escapedRealm = Uri.EscapeDataString(character.Realm);
+        var escapedName = Uri.EscapeDataString(character.CharName);
+        string rioApiUrl = $"https://raider.io/api/v1/characters/profile?region={REGION}&realm={escapedRealm}&name={escapedName}&fields=mythic_plus_scores_by_season:current";
+        var rioResponse = await http.GetAsync(rioApiUrl);
+        
+        if (rioResponse.IsSuccessStatusCode)
+        {
+            var rioData = await rioResponse.Content.ReadFromJsonAsync<RioResponse>();
+            if (rioData != null && rioData.Seasons.Count > 0)
+            {
+                var currentScores = rioData.Seasons[0].Scores;
+                character.RioAllScore = currentScores.All;
+                character.RioDpsScore = currentScores.Dps;
+                character.RioHealScore = currentScores.Healer;
+                character.RioTankScore = currentScores.Tank;
+                success = true;
+            }
+        }
+        else
+        {
+            logger.LogWarning("Raider.IO Profil nicht gefunden oder Fehler für {CharName}: {Status}", character.CharName, rioResponse.StatusCode);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning("Raider.IO Update Fehler für {CharName}: {Message}", character.CharName, ex.Message);
+    }
+
+    // 2. Blizzard
+    try
+    {
+        var realmSlug = character.Realm.ToLower().Replace(" ", "-").Replace("'", "");
+        var characterNameLower = character.CharName.ToLower();
+        var blizzardProfileUrl = $"https://{REGION}.api.blizzard.com/profile/wow/character/{realmSlug}/{characterNameLower}?namespace=profile-{REGION}&locale=en_US";
+        
+        var profileRequest = new HttpRequestMessage(HttpMethod.Get, blizzardProfileUrl);
+        profileRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        
+        var profileResponse = await http.SendAsync(profileRequest);
+        if (profileResponse.IsSuccessStatusCode)
+        {
+            var blizzardData = await profileResponse.Content.ReadFromJsonAsync<BlizzardProfileResponse>();
+            if (blizzardData != null)
+            {
+                character.Level = blizzardData.Level;
+                character.GearScore = blizzardData.EquippedItemLevel;
+                character.Class = blizzardData.CharacterClass.Name;
+                character.Faction = blizzardData.Faction.Name;
+                success = true;
+            }
+        }
+        else
+        {
+            logger.LogWarning("Blizzard Profil nicht gefunden oder Fehler für {CharName}: {Status}", character.CharName, profileResponse.StatusCode);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning("Blizzard Update Fehler für {CharName}: {Message}", character.CharName, ex.Message);
+    }
+
+    return success;
 }

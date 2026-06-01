@@ -266,6 +266,33 @@
   padding: 0;
 }
 
+.view-header-title {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.update-chars-btn {
+  padding: 0.4rem 0.8rem;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.update-chars-btn:hover {
+  background-color: #2980b9;
+}
+
+.update-chars-btn:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
 .add-char-form {
   display: flex;
   gap: 0.8rem;

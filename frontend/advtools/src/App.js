@@ -38,6 +38,7 @@ function App() {
   const [armoryGear, setArmoryGear] = useState(null);
   const [armoryRenderUrl, setArmoryRenderUrl] = useState(null);
   const [armoryLoading, setArmoryLoading] = useState(false);
+  const [updatingCharacters, setUpdatingCharacters] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -163,11 +164,25 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/customers/${customer.id}/characters`);
       setCharacters(response.data);
+      // Trigger background update
+      updateCustomerCharacters(customer);
     } catch (error) {
       console.error('Error fetching characters:', error);
       setCharacters([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updateCustomerCharacters = async (customer) => {
+    setUpdatingCharacters(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/customers/${customer.id}/characters/update`);
+      setCharacters(response.data);
+    } catch (error) {
+      console.error('Error updating characters:', error);
+    } finally {
+      setUpdatingCharacters(false);
     }
   };
 
@@ -308,7 +323,17 @@ function App() {
             {selectedCustomer ? (
               <>
                 <div className="view-header">
-                  <h2>Characters for {selectedCustomer.name}</h2>
+                  <div className="view-header-title">
+                    <h2>Characters for {selectedCustomer.name}</h2>
+                    <button 
+                      className="update-chars-btn" 
+                      onClick={() => updateCustomerCharacters(selectedCustomer)}
+                      disabled={updatingCharacters}
+                      title="Update GearScore and RIO for all characters"
+                    >
+                      {updatingCharacters ? '🔄 Updating...' : '🔄 Update Data'}
+                    </button>
+                  </div>
                   <form className="add-char-form" onSubmit={handleAddCharacter}>
                     <input 
                       type="text" 
@@ -331,7 +356,6 @@ function App() {
                 {!loading && characters.length === 0 && <p>No characters found for this customer.</p>}
                 <div className="character-grid">
                   {characters
-                    .filter((char) => char.level !== null && char.gearScore !== null)
                     .sort((a, b) => (b.rioAllScore || 0) - (a.rioAllScore || 0))
                     .map((char) => (
                     <div 
@@ -340,24 +364,30 @@ function App() {
                     >
                       <div className="char-info-main">
                         <div className="char-title-row">
-                          <img 
-                            src={getClassIcon(char.class)} 
-                            alt={char.class} 
-                            className="class-icon"
-                            onError={(e) => e.target.style.display = 'none'}
-                          />
+                          {char.class && (
+                            <img 
+                              src={getClassIcon(char.class)} 
+                              alt={char.class} 
+                              className="class-icon"
+                              onError={(e) => e.target.style.display = 'none'}
+                            />
+                          )}
                           <h3>{char.charName}</h3>
                         </div>
                         <div className="realm-faction-row">
-                          <img 
-                            src={getFactionIcon(char.faction)} 
-                            alt={char.faction} 
-                            className="faction-icon"
-                            onError={(e) => e.target.style.display = 'none'}
-                          />
-                          <p className="realm">{char.realm} - {char.faction}</p>
+                          {char.faction && (
+                            <img 
+                              src={getFactionIcon(char.faction)} 
+                              alt={char.faction} 
+                              className="faction-icon"
+                              onError={(e) => e.target.style.display = 'none'}
+                            />
+                          )}
+                          <p className="realm">{char.realm}{char.faction ? ` - ${char.faction}` : ''}</p>
                         </div>
-                        <p className="class-level">{char.class} (Level {char.level})</p>
+                        <p className="class-level">
+                          {char.class ? `${char.class} (Level ${char.level})` : 'Daten werden geladen...'}
+                        </p>
                       </div>
                       
                       <div className="char-stats-container">
@@ -368,7 +398,7 @@ function App() {
                             title="Click for Armory"
                           >
                             <span>GS</span>
-                            <strong>{char.gearScore}</strong>
+                            <strong>{char.gearScore !== null ? char.gearScore : '-'}</strong>
                           </div>
                           <div
                             className="stat-item clickable"
@@ -376,7 +406,7 @@ function App() {
                             title="Click for best runs"
                           >
                             <span>RIO</span>
-                            <strong>{char.rioAllScore}</strong>
+                            <strong>{char.rioAllScore !== null ? char.rioAllScore.toFixed(0) : '-'}</strong>
                           </div>
 
                         </div>
@@ -384,15 +414,15 @@ function App() {
                         <div className="rio-details">
                           <div className="rio-role-item">
                             <img src="/images/roles/DPS.png" alt="DPS" className="role-icon" />
-                            <span>DPS: {char.rioDpsScore}</span>
+                            <span>DPS: {char.rioDpsScore !== null ? char.rioDpsScore.toFixed(0) : '-'}</span>
                           </div>
                           <div className="rio-role-item">
                             <img src="/images/roles/Heal.png" alt="Heal" className="role-icon" />
-                            <span>Heal: {char.rioHealScore}</span>
+                            <span>Heal: {char.rioHealScore !== null ? char.rioHealScore.toFixed(0) : '-'}</span>
                           </div>
                           <div className="rio-role-item">
                             <img src="/images/roles/Tank.png" alt="Tank" className="role-icon" />
-                            <span>Tank: {char.rioTankScore}</span>
+                            <span>Tank: {char.rioTankScore !== null ? char.rioTankScore.toFixed(0) : '-'}</span>
                           </div>
                         </div>
                       </div>

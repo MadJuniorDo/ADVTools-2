@@ -14,6 +14,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
 }
 
 .header-left {
@@ -78,6 +81,41 @@
   display: flex;
   align-items: center;
   gap: 0.8rem;
+}
+
+.calculator-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: rgba(255,255,255,0.1);
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+.calc-input {
+  width: 100px;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  border: none;
+  background-color: white;
+  color: #333;
+  font-weight: bold;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.calc-input::-webkit-outer-spin-button,
+.calc-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.calc-result {
+  font-weight: bold;
+  color: #2ecc71;
+  font-size: 1.1rem;
+  white-space: nowrap;
 }
 
 .batch-progress-container {
@@ -168,7 +206,7 @@
 .content-wrapper {
   display: flex;
   gap: 2rem;
-  max-width: 1800px;
+  max-width: 2400px;
   margin: 0 auto;
   align-items: flex-start;
 }
@@ -293,6 +331,27 @@
   cursor: not-allowed;
 }
 
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.export-chars-btn {
+  padding: 0.4rem 0.8rem;
+  background-color: #9b59b6;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.export-chars-btn:hover {
+  background-color: #8e44ad;
+}
+
 .add-char-form {
   display: flex;
   gap: 0.8rem;
@@ -354,6 +413,48 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+}
+
+.char-info-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.char-details-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.realm-faction-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.detail-separator {
+  color: #bdc3c7;
+  font-size: 1.4rem;
+}
+
+.export-single-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s, transform 0.2s;
+  padding: 0.5rem;
+  margin-top: -0.2rem;
+  margin-right: -0.5rem;
+  margin-left: 0;
+}
+
+.export-single-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
 }
 
 .char-title-row {
@@ -429,14 +530,14 @@
 }
 
 .faction-icon {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   object-fit: cover;
 }
 
 .realm {
-  font-size: 0.9rem;
+  font-size: 1.2rem;
   color: #7f8c8d;
   margin: 0;
 }
@@ -444,6 +545,7 @@
 .class-level {
   font-weight: 600;
   color: #e67e22;
+  font-size: 1.2rem;
   margin: 0;
 }
 

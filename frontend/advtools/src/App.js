@@ -39,6 +39,9 @@ function App() {
   const [armoryRenderUrl, setArmoryRenderUrl] = useState(null);
   const [armoryLoading, setArmoryLoading] = useState(false);
   const [updatingCharacters, setUpdatingCharacters] = useState(false);
+  const [calcValue, setCalcValue] = useState('');
+
+  const calcResult = calcValue ? (parseFloat(calcValue) * 0.65).toLocaleString('de-DE', { maximumFractionDigits: 0 }) : '';
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -240,13 +243,60 @@ function App() {
     }
   };
 
+  const exportCharacters = () => {
+    if (!characters || characters.length === 0) {
+      alert("No characters to export.");
+      return;
+    }
+
+    const lines = characters.map(char => {
+      const nameRealm = `${char.charName}-${char.realm}`;
+      const faction = char.faction || 'Unknown';
+      const charClass = char.class || 'Unknown';
+      
+      const armoryLink = `https://worldofwarcraft.blizzard.com/en-gb/character/eu/${encodeURIComponent(char.realm.toLowerCase().replace(/\s+/g, '-'))}/${encodeURIComponent(char.charName.toLowerCase())}`;
+      const rioLink = `https://raider.io/characters/eu/${encodeURIComponent(char.realm.toLowerCase().replace(/\s+/g, '-'))}/${encodeURIComponent(char.charName.toLowerCase())}`;
+      
+      const gs = char.gearScore !== null ? char.gearScore : '-';
+      const rio = char.rioAllScore !== null ? char.rioAllScore.toFixed(0) : '-';
+      const inviteString = `/invite ${char.charName}-${char.realm.replace(/\s+/g, '')}`;
+
+      return `Character: ${char.charName} - ${char.realm}\nFaction: ${faction}\nClass: ${charClass}\nGS: ${gs} (${armoryLink})\nRIO: ${rio} (${rioLink})\nInvite: ${inviteString}\n`;
+    });
+
+    const exportText = `Characters for ${selectedCustomer.name}:\n\n` + lines.join('\n');
+    navigator.clipboard.writeText(exportText).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  const exportSingleCharacter = (e, char) => {
+    e.stopPropagation();
+    const nameRealm = `${char.charName}-${char.realm}`;
+    const faction = char.faction || 'Unknown';
+    const charClass = char.class || 'Unknown';
+    
+    const armoryLink = `https://worldofwarcraft.blizzard.com/en-gb/character/eu/${encodeURIComponent(char.realm.toLowerCase().replace(/\s+/g, '-'))}/${encodeURIComponent(char.charName.toLowerCase())}`;
+    const rioLink = `https://raider.io/characters/eu/${encodeURIComponent(char.realm.toLowerCase().replace(/\s+/g, '-'))}/${encodeURIComponent(char.charName.toLowerCase())}`;
+    
+    const gs = char.gearScore !== null ? char.gearScore : '-';
+    const rio = char.rioAllScore !== null ? char.rioAllScore.toFixed(0) : '-';
+    const inviteString = `/invite ${char.charName}-${char.realm.replace(/\s+/g, '')}`;
+
+    const exportText = `Character: ${char.charName} - ${char.realm}\nFaction: ${faction}\nClass: ${charClass}\nGS: ${gs} (${armoryLink})\nRIO: ${rio} (${rioLink})\nInvite: ${inviteString}`;
+
+    navigator.clipboard.writeText(exportText).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
   return (
     <div className="App">
       <header className="App-header">
         <div className="header-left">
           <h1>AdvTools</h1>
           <div className="quick-links">
-            <a href="https://boostertools.de/adv" target="_blank" rel="noopener noreferrer" className="quick-link-btn sheet">
+            <a href="http://192.168.178.81:8010/adv" target="_blank" rel="noopener noreferrer" className="quick-link-btn sheet">
               🇧 BoosterTools
           </a>
             <a href="https://garona.de/sheet" target="_blank" rel="noopener noreferrer" className="quick-link-btn sheet">
@@ -259,6 +309,17 @@ function App() {
               <a href="https://mythicplanner.com/" target="_blank" rel="noopener noreferrer" className="quick-link-btn planer">
                 🗺️ Rio Planer
               </a>
+            </div>
+            <div className="calculator-wrapper">
+              <span title="65% Calculator"></span>
+              <input 
+                type="number" 
+                placeholder="Gold amount" 
+                value={calcValue}
+                onChange={(e) => setCalcValue(e.target.value)}
+                className="calc-input"
+              />
+              {calcResult && <span className="calc-result">={calcResult}</span>}
             </div>
           </div>
         </div>
@@ -325,14 +386,23 @@ function App() {
                 <div className="view-header">
                   <div className="view-header-title">
                     <h2>Characters for {selectedCustomer.name}</h2>
-                    <button 
-                      className="update-chars-btn" 
-                      onClick={() => updateCustomerCharacters(selectedCustomer)}
-                      disabled={updatingCharacters}
-                      title="Update GearScore and RIO for all characters"
-                    >
-                      {updatingCharacters ? '🔄 Updating...' : '🔄 Update Data'}
-                    </button>
+                    <div className="header-actions">
+                      <button 
+                        className="update-chars-btn" 
+                        onClick={() => updateCustomerCharacters(selectedCustomer)}
+                        disabled={updatingCharacters}
+                        title="Update GearScore and RIO for all characters"
+                      >
+                        {updatingCharacters ? '🔄 Updating...' : '🔄 Update Data'}
+                      </button>
+                      <button 
+                        className="export-chars-btn" 
+                        onClick={exportCharacters}
+                        title="Copy characters to clipboard"
+                      >
+                        📋 Export
+                      </button>
+                    </div>
                   </div>
                   <form className="add-char-form" onSubmit={handleAddCharacter}>
                     <input 
@@ -363,31 +433,43 @@ function App() {
                       className="character-card"
                     >
                       <div className="char-info-main">
-                        <div className="char-title-row">
-                          {char.class && (
-                            <img 
-                              src={getClassIcon(char.class)} 
-                              alt={char.class} 
-                              className="class-icon"
-                              onError={(e) => e.target.style.display = 'none'}
-                            />
-                          )}
-                          <h3>{char.charName}</h3>
+                        <div className="char-info-left">
+                          <div className="char-title-row">
+                            {char.class && (
+                              <img 
+                                src={getClassIcon(char.class)} 
+                                alt={char.class} 
+                                className="class-icon"
+                                onError={(e) => e.target.style.display = 'none'}
+                              />
+                            )}
+                            <h3>{char.charName}</h3>
+                          </div>
+                          <div className="char-details-row">
+                            <span className="class-level">
+                              {char.class ? `${char.class} (Level ${char.level})` : 'Daten werden geladen...'}
+                            </span>
+                            <span className="detail-separator">•</span>
+                            <span className="realm-faction-wrapper">
+                              {char.faction && (
+                                <img 
+                                  src={getFactionIcon(char.faction)} 
+                                  alt={char.faction} 
+                                  className="faction-icon"
+                                  onError={(e) => e.target.style.display = 'none'}
+                                />
+                              )}
+                              <span className="realm">{char.realm}{char.faction ? ` - ${char.faction}` : ''}</span>
+                            </span>
+                          </div>
                         </div>
-                        <div className="realm-faction-row">
-                          {char.faction && (
-                            <img 
-                              src={getFactionIcon(char.faction)} 
-                              alt={char.faction} 
-                              className="faction-icon"
-                              onError={(e) => e.target.style.display = 'none'}
-                            />
-                          )}
-                          <p className="realm">{char.realm}{char.faction ? ` - ${char.faction}` : ''}</p>
-                        </div>
-                        <p className="class-level">
-                          {char.class ? `${char.class} (Level ${char.level})` : 'Daten werden geladen...'}
-                        </p>
+                        <button 
+                          className="export-single-btn" 
+                          onClick={(e) => exportSingleCharacter(e, char)} 
+                          title="Export this character"
+                        >
+                          📋
+                        </button>
                       </div>
                       
                       <div className="char-stats-container">

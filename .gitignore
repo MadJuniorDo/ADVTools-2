@@ -1,22 +1,38 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+node_modules/
+**/node_modules/
+.pnp
 .pnp.js
 
-# testing
-/coverage
+# Testing & Coverage
+coverage/
 
-# production
-/build
+# Build outputs
+build/
+**/build/
+bin/
+obj/
+**/bin/
+**/obj/
 
-# misc
-.DS_Store
-backend/advserviceses/bin
-backend/advserviceses/obj
-frontend/advtools/old.git
+# IDEs & Editors
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+*.user
+*.suo
+.antigravitycli/
+
+# Archives & Backups
+*.tar.gz
+*.zip
+*.bak
+
+# Environment & Logs
+.env
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.env
+.DS_Store

@@ -1,8 +1,8 @@
 services:
   backend:
     build:
-      context: ./backend/advserviceses
-      dockerfile: advserviceses/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "${BACKEND_PORT}:8080"
@@ -17,13 +17,13 @@ services:
 
   frontend:
     build:
-      context: ./frontend/advtools
+      context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT}:80"
     volumes:
-      - ./frontend/advtools/build:/usr/share/nginx/html
+      - ./frontend/build:/usr/share/nginx/html
     depends_on:
       - backend
 

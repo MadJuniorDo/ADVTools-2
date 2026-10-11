@@ -1,7 +1,0 @@
-﻿services:
-  advserviceses:
-    image: advserviceses
-    build:
-      context: .
-      dockerfile: advserviceses/Dockerfile
-
